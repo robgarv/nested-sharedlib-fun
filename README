@@ -1,0 +1,129 @@
+This little project explores GNU linker behavior in the case where a main
+program is dependent on 
+
+1) libtoolized shared libraries that are NOT setup in /etc/ld.so.conf
+2) the libtoolized shared libraries are themselves dependent on 
+  NON-libtoolized shared libraries that are also NOT setup in /etc/ld.so.conf
+
+This was done to investigate and overcome linker problems encountered when
+linking 64 bit product-reveal libraries that had to link xdbinder 64 bit
+libraries.
+
+libp1.so is a very simple, non-libtoolized shared library that will be used by
+libtoolized library proj1/libpa.so. 
+
+proj1 is a libtoolized, GNU autotools project with one application and
+two libraries. 
+
+proj1/lib/libpa builds a simple libtoolized shared library that links libp1.so
+
+proj1/lib/libpb builds a libtoolized shared library that uses xbinder to 
+generate schema generated code and links to non-libtoolized shared libraries
+provided by xbinder. 
+
+proj2/src/prog1 builds a simple application that links libpa.so and libpb.so
+
+The problem:
+
+Building SciCore applications like src/Eit produced dozens of undefined 
+reference errors when linking libproduct-bonus.so. This library links other
+libtoolized libraries, which reference xbinder libraries. Though these
+linked without error, at application link time undefined references errors
+where issued. 
+
+The problem is that the legacy method of linking the libtoolized libraries for
+some bizarre reason caused the DT_NEEDED references to the xbinder libraries to 
+be omitted. The command readelf -d can be used to examine the structure of a
+shared library and revealed that the DT_NEEDED references where missing. 
+
+Below is the readelf output of the libproduct-s2s.so library (lib/Bonus/s2s).
+In this case, the library is properly built and the necessary DT_NEEDED
+records for libexpat.so and libosysrt.so are included. IF THESE RECORDS ARE
+NOT PRESENT, attempts to link libproduct-bonus.so to an application WILL 
+FAIL.
+
+u16dev01:(21:48:21):readelf -d libproduct-s2s.so                                ~/dev2/product-reveal-alc/build/lib/Bonus/s2s/.libs
+
+Dynamic section at offset 0x15cd8 contains 29 entries:
+  Tag        Type                         Name/Value
+ 0x0000000000000001 (NEEDED)             Shared library: [libexpat.so]
+ 0x0000000000000001 (NEEDED)             Shared library: [libosysrt.so]
+ 0x0000000000000001 (NEEDED)             Shared library: [libstdc++.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
+ 0x000000000000000e (SONAME)             Library soname: [libproduct-s2s.so.0]
+ 0x000000000000000c (INIT)               0xa9a0
+ 0x000000000000000d (FINI)               0x12214
+ 0x0000000000000019 (INIT_ARRAY)         0x215428
+ 0x000000000000001b (INIT_ARRAYSZ)       144 (bytes)
+ 0x000000000000001a (FINI_ARRAY)         0x2154b8
+ 0x000000000000001c (FINI_ARRAYSZ)       8 (bytes)
+ 0x000000006ffffef5 (GNU_HASH)           0x1f0
+ 0x0000000000000005 (STRTAB)             0x3808
+ 0x0000000000000006 (SYMTAB)             0xb80
+ 0x000000000000000a (STRSZ)              17341 (bytes)
+ 0x000000000000000b (SYMENT)             24 (bytes)
+ 0x0000000000000003 (PLTGOT)             0x216000
+ 0x0000000000000002 (PLTRELSZ)           3624 (bytes)
+ 0x0000000000000014 (PLTREL)             RELA
+ 0x0000000000000017 (JMPREL)             0x9b78
+ 0x0000000000000007 (RELA)               0x8030
+ 0x0000000000000008 (RELASZ)             6984 (bytes)
+ 0x0000000000000009 (RELAENT)            24 (bytes)
+ 0x000000006ffffffe (VERNEED)            0x7f80
+ 0x000000006fffffff (VERNEEDNUM)         3
+ 0x000000006ffffff0 (VERSYM)             0x7bc6
+ 0x000000006ffffff9 (RELACOUNT)          26
+ 0x0000000000000000 (NULL)               0x0
+
+
+The recipe for fixing this turned out to be simple and is illustrated
+by this excerpt from lib/libpb/Makefile.am
+
+# Listing the libraries by path and full name
+# causes DT_NEEDED records to be omitted from the built
+# shared library. This will cause undefined reference
+# errors at application link time. 
+
+# libpb_la_LIBADD = @xbinder_libs@
+
+# Using the -l options results in a library equipped
+# with the necessary DT_NEEDED records.
+libpb_la_LIBADD = $(xbinder_libdir)/rtXmlExpatIF_a.o \
+    -losysrt -losysrtxml -lexpat -losysrt 
+
+The make variable xbinder_libs was set up in the configuration macro
+lpc_xbinder.m4 as this:
+
+
+  xbinder_libs="$xbinder_libdir/rtXmlExpatIF_a.o $xbinder_libdir/libosysrt.so"
+  xbinder_libs="$xbinder_libs $xbinder_libdir/libosysrtxml.so"
+  xbinder_libs="$xbinder_libs $xbinder_libdir/libexpat.so"
+  xbinder_libs="$xbinder_libs $xbinder_libdir/libosysrt.so"
+
+Apparently, this no longer satisfies the GNU linker. Deviations from library
+naming conventions and specification of full path names does not produce
+a shared library equipped with the necessary DT_NEEDED records. 
+
+(Note: xbinder_libs can be redefined to use the -l options easily enough.)
+
+But we're not done. When linking the executable binary, the application, 
+rpath must be set so that the executable knows where to find the 
+unregistered shared libraries. (This can be avoided if the shared libraries
+are registered in /etc/ld.conf.so)
+
+This exercept from src/prog1/Makefile.am provides an example:
+
+prog1_LDFLAGS = -L$(top_srcdir)/lib/libpa \
+  -L$(top_srcdir)/lib/libpb -Wl,
+  -rpath=$(libp1_dir) -Wl,-rpath=$(xbinder_libdir)
+
+References:
+
+http://www.kaizou.org/2015/01/linux-libraries/
+
+https://wiki.mageia.org/en/Overlinking_issues_in_packaging
+
+https://stackoverflow.com/questions/24598047/why-does-ld-need-rpath-link-when-linking-an-executable-against-a-so-that-needs
+
+

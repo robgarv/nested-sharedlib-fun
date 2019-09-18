@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+
+<xsd:element name="simpleArray" type="SimpleArray"/>
+
+<xsd:complexType name="SimpleArray">
+   <xsd:sequence>
+      <xsd:element name="item" type="xsd:string" 
+        minOccurs="0" maxOccurs="unbounded"/>
+      <xsd:element name="numbers" type="xsd:integer" 
+        maxOccurs="10"/>
+   </xsd:sequence>
+</xsd:complexType>
+
+</xsd:schema>

@@ -1,129 +1,84 @@
-This little project explores GNU linker behavior in the case where a main
-program is dependent on 
+nested-sharedlib-fun
 
-1) libtoolized shared libraries that are NOT setup in /etc/ld.so.conf
-2) the libtoolized shared libraries are themselves dependent on 
-  NON-libtoolized shared libraries that are also NOT setup in /etc/ld.so.conf
+Yeah ... fun for those spending hours delving into linker operation. 
 
-This was done to investigate and overcome linker problems encountered when
-linking 64 bit product-reveal libraries that had to link xdbinder 64 bit
-libraries.
+This little collection of projects was motivated by a requirement
+to port an old legacy code based, compiled for 32 bit and Debian 7, to
+Ubuntu 16.04, 64 bit. Linker behavior is subtly different between
+these two environments, and not in a way conducive to developer comfort.
 
-libp1.so is a very simple, non-libtoolized shared library that will be used by
-libtoolized library proj1/libpa.so. 
+Projects In This Repo:
 
-proj1 is a libtoolized, GNU autotools project with one application and
-two libraries. 
+libp1:
 
-proj1/lib/libpa builds a simple libtoolized shared library that links libp1.so
+A simple, non-libtoolized library used by proj1. 
 
-proj1/lib/libpb builds a libtoolized shared library that uses xbinder to 
-generate schema generated code and links to non-libtoolized shared libraries
-provided by xbinder. 
+Build instructions:
 
-proj2/src/prog1 builds a simple application that links libpa.so and libpb.so
+cd libp1
+./makelib.sh
 
-The problem:
+proj1:
 
-Building SciCore applications like src/Eit produced dozens of undefined 
-reference errors when linking libproduct-bonus.so. This library links other
-libtoolized libraries, which reference xbinder libraries. Though these
-linked without error, at application link time undefined references errors
-where issued. 
+A sample application that tested procedures for resolving certain issues
+related to linking applications to share libraries that linked to other
+shared libraries. (See proj1/README.) This depends on an installation xbinder,
+version 2.6.0. To build it requires 
+  1) An installation of xbinder 
+  2) Modification of proj1/share/m4/lpc_xbinder.m4 to change xbinder_root
+    to a value consistent with your xbinder installation. 
 
-The problem is that the legacy method of linking the libtoolized libraries for
-some bizarre reason caused the DT_NEEDED references to the xbinder libraries to 
-be omitted. The command readelf -d can be used to examine the structure of a
-shared library and revealed that the DT_NEEDED references where missing. 
+AC_DEFUN([LPC_XBINDER],[
+  xbinder_root=<path to your Xbinder location>/xbv260
+  xbinder_includes=$xbinder_root
+  AC_SUBST(xbinder_includes)
 
-Below is the readelf output of the libproduct-s2s.so library (lib/Bonus/s2s).
-In this case, the library is properly built and the necessary DT_NEEDED
-records for libexpat.so and libosysrt.so are included. IF THESE RECORDS ARE
-NOT PRESENT, attempts to link libproduct-bonus.so to an application WILL 
-FAIL.
+To build:
 
-u16dev01:(21:48:21):readelf -d libproduct-s2s.so                                ~/dev2/product-reveal-alc/build/lib/Bonus/s2s/.libs
+cd proj1
+autoconf
+automake
+./configure
+make
 
-Dynamic section at offset 0x15cd8 contains 29 entries:
-  Tag        Type                         Name/Value
- 0x0000000000000001 (NEEDED)             Shared library: [libexpat.so]
- 0x0000000000000001 (NEEDED)             Shared library: [libosysrt.so]
- 0x0000000000000001 (NEEDED)             Shared library: [libstdc++.so.6]
- 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
- 0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
- 0x000000000000000e (SONAME)             Library soname: [libproduct-s2s.so.0]
- 0x000000000000000c (INIT)               0xa9a0
- 0x000000000000000d (FINI)               0x12214
- 0x0000000000000019 (INIT_ARRAY)         0x215428
- 0x000000000000001b (INIT_ARRAYSZ)       144 (bytes)
- 0x000000000000001a (FINI_ARRAY)         0x2154b8
- 0x000000000000001c (FINI_ARRAYSZ)       8 (bytes)
- 0x000000006ffffef5 (GNU_HASH)           0x1f0
- 0x0000000000000005 (STRTAB)             0x3808
- 0x0000000000000006 (SYMTAB)             0xb80
- 0x000000000000000a (STRSZ)              17341 (bytes)
- 0x000000000000000b (SYMENT)             24 (bytes)
- 0x0000000000000003 (PLTGOT)             0x216000
- 0x0000000000000002 (PLTRELSZ)           3624 (bytes)
- 0x0000000000000014 (PLTREL)             RELA
- 0x0000000000000017 (JMPREL)             0x9b78
- 0x0000000000000007 (RELA)               0x8030
- 0x0000000000000008 (RELASZ)             6984 (bytes)
- 0x0000000000000009 (RELAENT)            24 (bytes)
- 0x000000006ffffffe (VERNEED)            0x7f80
- 0x000000006fffffff (VERNEEDNUM)         3
- 0x000000006ffffff0 (VERSYM)             0x7bc6
- 0x000000006ffffff9 (RELACOUNT)          26
- 0x0000000000000000 (NULL)               0x0
+To run the test application:
 
+src/prog1/prog1
 
-The recipe for fixing this turned out to be simple and is illustrated
-by this excerpt from lib/libpb/Makefile.am
+See proj1/README for details.
 
-# Listing the libraries by path and full name
-# causes DT_NEEDED records to be omitted from the built
-# shared library. This will cause undefined reference
-# errors at application link time. 
+circular:
 
-# libpb_la_LIBADD = @xbinder_libs@
+Some legacy systems were built with circular dependencies between custom
+shared libraries. In particular, shared libA could refer to shared libB. Let's
+say shared libB depends on A, so libA must be built first. But let's further
+presume libA makes reference to items in libB ... 
 
-# Using the -l options results in a library equipped
-# with the necessary DT_NEEDED records.
-libpb_la_LIBADD = $(xbinder_libdir)/rtXmlExpatIF_a.o \
-    -losysrt -losysrtxml -lexpat -losysrt 
+In certain legacy Debian 7 code bases, libB would be linked with explicit
+reference to libA but libA would not be linked to libB (which wouldn't exist
+yet in the make all build process anyway). So libB would have a DT_NEEDED
+entry referencing to LibA, but libA would NOT have a DT_NEEDED record
+referencing libB. In Debian7, the linker would resolve this at application
+link time but this evidently doesn't work in Ubuntu 16.04. 
 
-The make variable xbinder_libs was set up in the configuration macro
-lpc_xbinder.m4 as this:
+This project explores methods for working around that issue.
 
+Note: This project does NOT depend on xbinder.
 
-  xbinder_libs="$xbinder_libdir/rtXmlExpatIF_a.o $xbinder_libdir/libosysrt.so"
-  xbinder_libs="$xbinder_libs $xbinder_libdir/libosysrtxml.so"
-  xbinder_libs="$xbinder_libs $xbinder_libdir/libexpat.so"
-  xbinder_libs="$xbinder_libs $xbinder_libdir/libosysrt.so"
+To build:
 
-Apparently, this no longer satisfies the GNU linker. Deviations from library
-naming conventions and specification of full path names does not produce
-a shared library equipped with the necessary DT_NEEDED records. 
+cd circular
+autoconf
+automake
+./configure
+make
 
-(Note: xbinder_libs can be redefined to use the -l options easily enough.)
+To run the applications:
 
-But we're not done. When linking the executable binary, the application, 
-rpath must be set so that the executable knows where to find the 
-unregistered shared libraries. (This can be avoided if the shared libraries
-are registered in /etc/ld.conf.so)
+src/app1/app1
+src/app2/app2
 
-This exercept from src/prog1/Makefile.am provides an example:
+See circular/README for details.
 
-prog1_LDFLAGS = -L$(top_srcdir)/lib/libpa \
-  -L$(top_srcdir)/lib/libpb -Wl,
-  -rpath=$(libp1_dir) -Wl,-rpath=$(xbinder_libdir)
-
-References:
-
-http://www.kaizou.org/2015/01/linux-libraries/
-
-https://wiki.mageia.org/en/Overlinking_issues_in_packaging
-
-https://stackoverflow.com/questions/24598047/why-does-ld-need-rpath-link-when-linking-an-executable-against-a-so-that-needs
 
 

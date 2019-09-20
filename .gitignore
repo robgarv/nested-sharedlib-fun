@@ -84,3 +84,5 @@ Makefile
 
 # Custom
 .deps/
+.libs
+

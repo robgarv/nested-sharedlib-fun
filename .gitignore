@@ -86,3 +86,5 @@ Makefile
 .deps/
 .libs
 
+/app1
+/app2

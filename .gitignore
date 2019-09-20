@@ -86,5 +86,5 @@ Makefile
 .deps/
 .libs
 
-/app1
-/app2
+circular/src/app1/app1
+circular/src/app2/app2

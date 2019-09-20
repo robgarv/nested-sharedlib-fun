@@ -17,6 +17,6 @@ void Circ0B::printCirc0B(const std::string &tag)
   std::cout << "Circ0B: " << mMsg << " / " << tag << std::endl;
   std::string tmsg = "From Circ0B";
   mCp1Obj->printCp1Text(tmsg.c_str());
-  Circ2B obj( "Created From Circ0B");
+  Circ2A obj( "Created From Circ0A");
   obj.echo();
 }

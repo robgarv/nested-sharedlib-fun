@@ -84,7 +84,7 @@ Makefile
 
 # Custom
 .deps/
-.libs
+.libs/
 
 circular/src/app1/app1
 circular/src/app2/app2
